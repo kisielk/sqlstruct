@@ -12,8 +12,8 @@ which column of a SQL query the field corresponds to.
 For example:
 
 	type T struct {
-		f1 string `sql:"f1"`
-		f2 string `sql:"f2"`
+		F1 string `sql:"f1"`
+		F2 string `sql:"f2"`
 	}
 
 	r, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
