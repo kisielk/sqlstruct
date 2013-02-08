@@ -4,7 +4,7 @@
 
 /*
 Package sqlstruct provides some convenience functions for using structs with
-the standard library's sql package. 
+the Go standard library's database/sql package.
 
 The package works with structs that are tagged with a "sql" tag that identifies
 which column of a SQL query the field corresponds to.
@@ -16,7 +16,7 @@ For example:
 		F2 string `sql:"f2"`
 	}
 
-	r, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
+	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
 	...
 
 	for rows.Next() {
