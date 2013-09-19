@@ -6,14 +6,17 @@
 Package sqlstruct provides some convenience functions for using structs with
 the Go standard library's database/sql package.
 
-The package works with structs that are tagged with a "sql" tag that identifies
-which column of a SQL query the field corresponds to.
+The package matches struct field names to SQL query column names. A field can
+also specify a matching column with "sql" tag, if it's different from field
+name.  Unexported fields or fields marked with `sql:"-"` are ignored, just like
+with "encoding/json" package.
 
 For example:
 
 	type T struct {
-		F1 string `sql:"f1"`
-		F2 string `sql:"f2"`
+		F1 string
+		F2 string `sql:"field2"`
+		F3 string `sql:"-"`
 	}
 
 	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
@@ -78,10 +81,16 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 		f := typ.Field(i)
 		tag := f.Tag.Get(tagName)
 
-		// Skip unexported fields and those which are not tagged
-		if f.PkgPath != "" || tag == "" {
+		// Skip unexported fields or fields marked with "-"
+		if f.PkgPath != "" || tag == "-" {
 			continue
 		}
+
+		// Use field name for untagged fields
+		if tag == "" {
+			tag = f.Name
+		}
+		tag = strings.ToLower(tag)
 
 		finfo[tag] = i
 	}
@@ -115,7 +124,7 @@ func Scan(dest interface{}, rows Rows) error {
 	}
 
 	for _, name := range cols {
-		idx, ok := fieldInfo[name]
+		idx, ok := fieldInfo[strings.ToLower(name)]
 		var v interface{}
 		if !ok {
 			// There is no field mapped to this column so we discard it
