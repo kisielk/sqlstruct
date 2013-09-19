@@ -9,9 +9,10 @@ import (
 )
 
 type testType struct {
-	FieldA string `sql:"field_a"`
-	FieldB string // Not used
-	FieldC string `sql:"field_c"`
+	FieldA  string `sql:"field_a"`
+	FieldB  string `sql:"-"`       // Ignored
+	FieldC  string `sql:"field_C"` // Different letter case
+	Field_D string // Field name is used
 }
 
 // testRows is a mock version of sql.Rows which can only scan strings
@@ -48,7 +49,7 @@ func (r *testRows) addValue(c string, v interface{}) {
 
 func TestColumns(t *testing.T) {
 	var v testType
-	e := "field_a, field_c"
+	e := "field_a, field_c, field_d"
 	c := Columns(v)
 
 	if c != e {
@@ -61,8 +62,9 @@ func TestScan(t *testing.T) {
 	rows.addValue("field_a", "a")
 	rows.addValue("field_b", "b")
 	rows.addValue("field_c", "c")
+	rows.addValue("field_d", "d")
 
-	e := testType{"a", "", "c"}
+	e := testType{"a", "", "c", "d"}
 
 	var r testType
 	err := Scan(&r, rows)
