@@ -51,7 +51,7 @@ var finfoLock sync.RWMutex
 const tagName = "sql"
 
 // fieldInfo is a mapping of field tag values to their indices
-type fieldInfo map[string]int
+type fieldInfo map[string][]int
 
 func init() {
 	finfos = make(map[reflect.Type]fieldInfo)
@@ -86,13 +86,21 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 			continue
 		}
 
+		// Handle embedded structs
+		if f.Anonymous && f.Type.Kind() == reflect.Struct {
+			for k, v := range getFieldInfo(f.Type) {
+				finfo[k] = append([]int{i}, v...)
+			}
+			continue
+		}
+
 		// Use field name for untagged fields
 		if tag == "" {
 			tag = f.Name
 		}
 		tag = strings.ToLower(tag)
 
-		finfo[tag] = i
+		finfo[tag] = []int{i}
 	}
 
 	finfoLock.Lock()
@@ -130,7 +138,7 @@ func Scan(dest interface{}, rows Rows) error {
 			// There is no field mapped to this column so we discard it
 			v = &sql.RawBytes{}
 		} else {
-			v = elem.Field(idx).Addr().Interface()
+			v = elem.FieldByIndex(idx).Addr().Interface()
 		}
 		values = append(values, v)
 	}
