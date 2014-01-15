@@ -10,26 +10,73 @@ The package matches struct field names to SQL query column names. A field can
 also specify a matching column with "sql" tag, if it's different from field
 name.  Unexported fields or fields marked with `sql:"-"` are ignored, just like
 with "encoding/json" package.
+Aliased tables in sql statement may be scanned into a specific structure identified
+by the same alias, see the second example.
 
 For example:
 
-	type T struct {
-		F1 string
-		F2 string `sql:"field2"`
-		F3 string `sql:"-"`
-	}
+    type T struct {
+        F1 string
+        F2 string `sql:"field2"`
+        F3 string `sql:"-"`
+    }
 
-	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
-	...
+    rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
+    ...
 
-	for rows.Next() {
-		var t T
-		err = sqlstruct.Scan(&t, rows)
-		...
-	}
+    for rows.Next() {
+        err = sqlstruct.Scan(&t, rows)
+        ...
+    }
 
-	err = rows.Err() // get any errors encountered during iteration
+    err = rows.Err() // get any errors encountered during iteration
 
+Example with aliased structures:
+
+    type User struct {
+        Id int `sql:"id"`
+        Username string `sql:"username"`
+        Email string `sql:"address"`
+        Name string `sql:"name"`
+        HomeAddress *Address `sql:"-"`
+    }
+
+    type Address struct {
+        Id int `sql:"id"`
+        City string `sql:"city"`
+        Street string `sql:"address"`
+    }
+
+    ...
+
+    user := new(User)
+    address := new(Address)
+    sql := `
+SELECT %s, %s FROM users AS u
+INNER JOIN address AS a ON a.id = u.address_id
+WHERE u.username = ?
+`
+    sql = fmt.Sprintf(sql, sqlstruct.ColumnsAliased(*user, "u"), sqlstruct.ColumnsAliased(*address, "a"))
+    rows, err := db.Query(sql, "gedi")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer rows.Close()
+    if rows.Next() {
+        err = sqlstruct.ScanAliased(user, rows, "u")
+        if err != nil {
+            log.Fatal(err)
+        }
+        err = sqlstruct.ScanAliased(address, rows, "a")
+        if err != nil {
+            log.Fatal(err)
+        }
+        user.HomeAddress = address
+    }
+    fmt.Printf("%+v", *user)
+    // output: "{Id:1 Username:gedi Email:gediminas.morkevicius@gmail.com Name:Gedas HomeAddress:0xc21001f570}"
+    fmt.Printf("%+v", *user.HomeAddress)
+    // output: "{Id:2 City:Vilnius Street:Plento 34}"
 
 */
 package sqlstruct
@@ -115,6 +162,49 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 // mapped to any struct fields are ignored. Struct fields which have no matching column
 // in the result set are left unchanged.
 func Scan(dest interface{}, rows Rows) error {
+	return doScan(dest, rows, "")
+}
+
+// ScanAliased scans the next row from "rows" and looks for all "dest" structure fields
+// defined in struct by "sql" tags, which maches columns prefixed by "alias". See
+// "ColumnsAliased" function, it generates a select clause which contains all aliased
+// "dest" structure fields
+func ScanAliased(dest interface{}, rows Rows, alias string) error {
+	return doScan(dest, rows, alias)
+}
+
+// Columns returns a string containing a sorted, comma-separated list of column names as
+// defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
+func Columns(s interface{}) string {
+	return strings.Join(cols(s), ", ")
+}
+
+// Columns generates a sorted in ascending order select clause which consists of all "s"
+// struct fields tagged by "sql". It also aliases all these column names with "a". Later
+// it can be scanned into a struct by the same alias. See "ScanAliased"
+func ColumnsAliased(s interface{}, a string) string {
+	names := cols(s)
+	aliased := make([]string, 0, len(names))
+	for _, n := range names {
+		aliased = append(aliased, a+"."+n+" AS "+a+"_"+n)
+	}
+	return strings.Join(aliased, ", ")
+}
+
+func cols(s interface{}) []string {
+	v := reflect.ValueOf(s)
+	fields := getFieldInfo(v.Type())
+
+	names := make([]string, 0, len(fields))
+	for f := range fields {
+		names = append(names, f)
+	}
+
+	sort.Strings(names)
+	return names
+}
+
+func doScan(dest interface{}, rows Rows, alias string) (err error) {
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
 
@@ -128,10 +218,13 @@ func Scan(dest interface{}, rows Rows) error {
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return err
+		return
 	}
 
 	for _, name := range cols {
+		if len(alias) > 0 {
+			name = strings.Replace(name, alias+"_", "", 1)
+		}
 		idx, ok := fieldInfo[strings.ToLower(name)]
 		var v interface{}
 		if !ok {
@@ -143,24 +236,6 @@ func Scan(dest interface{}, rows Rows) error {
 		values = append(values, v)
 	}
 
-	if err := rows.Scan(values...); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Columns returns a string containing a sorted, comma-separated list of column names as defined
-// by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
-func Columns(s interface{}) string {
-	v := reflect.ValueOf(s)
-	fields := getFieldInfo(v.Type())
-
-	names := make([]string, 0, len(fields))
-	for f := range fields {
-		names = append(names, f)
-	}
-
-	sort.Strings(names)
-	return strings.Join(names, ", ")
+	err = rows.Scan(values...)
+	return
 }
