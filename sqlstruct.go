@@ -10,8 +10,6 @@ The package matches struct field names to SQL query column names. A field can
 also specify a matching column with "sql" tag, if it's different from field
 name.  Unexported fields or fields marked with `sql:"-"` are ignored, just like
 with "encoding/json" package.
-Aliased tables in sql statement may be scanned into a specific structure identified
-by the same alias, see the second example.
 
 For example:
 
@@ -25,13 +23,15 @@ For example:
     ...
 
     for rows.Next() {
+    	var t T
         err = sqlstruct.Scan(&t, rows)
         ...
     }
 
     err = rows.Err() // get any errors encountered during iteration
 
-Example with aliased structures:
+Aliased tables in a SQL statement may be scanned into a specific structure identified
+by the same alias, using the ColumnsAliased and ScanAliased functions:
 
     type User struct {
         Id int `sql:"id"`
@@ -49,8 +49,8 @@ Example with aliased structures:
 
     ...
 
-    user := new(User)
-    address := new(Address)
+    var user User
+    var address Address
     sql := `
 SELECT %s, %s FROM users AS u
 INNER JOIN address AS a ON a.id = u.address_id
@@ -63,11 +63,11 @@ WHERE u.username = ?
     }
     defer rows.Close()
     if rows.Next() {
-        err = sqlstruct.ScanAliased(user, rows, "u")
+        err = sqlstruct.ScanAliased(&user, rows, "u")
         if err != nil {
             log.Fatal(err)
         }
-        err = sqlstruct.ScanAliased(address, rows, "a")
+        err = sqlstruct.ScanAliased(&address, rows, "a")
         if err != nil {
             log.Fatal(err)
         }
@@ -165,10 +165,13 @@ func Scan(dest interface{}, rows Rows) error {
 	return doScan(dest, rows, "")
 }
 
-// ScanAliased scans the next row from "rows" and looks for all "dest" structure fields
-// defined in struct by "sql" tags, which maches columns prefixed by "alias". See
-// "ColumnsAliased" function, it generates a select clause which contains all aliased
-// "dest" structure fields
+// ScanAliased works like scan, except that it expects the results in the query to be
+// prefixed by the given alias.
+//
+// For example, if scanning to a field named "name" with an alias of "user" it will
+// expect to find the result in a column named "user_name".
+//
+// See ColumnAliased for a convenient way to generate these queries.
 func ScanAliased(dest interface{}, rows Rows, alias string) error {
 	return doScan(dest, rows, alias)
 }
@@ -179,14 +182,18 @@ func Columns(s interface{}) string {
 	return strings.Join(cols(s), ", ")
 }
 
-// Columns generates a sorted in ascending order select clause which consists of all "s"
-// struct fields tagged by "sql". It also aliases all these column names with "a". Later
-// it can be scanned into a struct by the same alias. See "ScanAliased"
-func ColumnsAliased(s interface{}, a string) string {
+// ColumnsAliased works like Columns except it prefixes the resulting column name with the
+// given alias.
+//
+// For each field in the given struct it will generate a statement like:
+//    alias.field AS alias_field
+//
+// It is intended to be used in conjunction with the ScanAliased function.
+func ColumnsAliased(s interface{}, alias string) string {
 	names := cols(s)
 	aliased := make([]string, 0, len(names))
 	for _, n := range names {
-		aliased = append(aliased, a+"."+n+" AS "+a+"_"+n)
+		aliased = append(aliased, alias+"."+n+" AS "+alias+"_"+n)
 	}
 	return strings.Join(aliased, ", ")
 }
