@@ -19,7 +19,7 @@ For example:
         F3 string `sql:"-"`
     }
 
-    rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T)))
+    rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T{})))
     ...
 
     for rows.Next() {
