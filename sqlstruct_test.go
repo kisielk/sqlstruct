@@ -141,3 +141,21 @@ func TestScanAliased(t *testing.T) {
 		t.Errorf("expected %q got %q", expected2, actual2)
 	}
 }
+
+func TestToSnakeCase(t *testing.T) {
+	var s string
+	s = ToSnakeCase("FirstName")
+	if "first_name" != s {
+		t.Errorf("expected first_name got %q", s)
+	}
+
+	s = ToSnakeCase("First")
+	if "first" != s {
+		t.Errorf("expected first got %q", s)
+	}
+
+	s = ToSnakeCase("firstName")
+	if "first_name" != s {
+		t.Errorf("expected first_name got %q", s)
+	}
+}
