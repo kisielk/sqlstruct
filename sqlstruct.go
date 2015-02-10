@@ -82,6 +82,7 @@ WHERE u.username = ?
 package sqlstruct
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"reflect"
@@ -89,6 +90,19 @@ import (
 	"strings"
 	"sync"
 )
+
+// NameMapper is used to convert struct fields which do not have sql tags
+// into database column names. The default mapper is a no-op.
+//
+// Example override usage:
+//
+//  FirstName => first_name
+//		sqlstruct.NameMapper = sqlstruct.ToSnakeCase
+//
+//  Any func(string)string can be used
+//
+//
+var NameMapper = strings.ToLower
 
 // A cache of fieldInfos to save reflecting every time. Inspried by encoding/xml
 var finfos map[reflect.Type]fieldInfo
@@ -145,7 +159,7 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 		if tag == "" {
 			tag = f.Name
 		}
-		tag = strings.ToLower(tag)
+		tag = NameMapper(tag)
 
 		finfo[tag] = []int{i}
 	}
@@ -245,4 +259,24 @@ func doScan(dest interface{}, rows Rows, alias string) (err error) {
 
 	err = rows.Scan(values...)
 	return
+}
+
+func ToSnakeCase(src string) string {
+	thisUpper := false
+	prevUpper := false
+
+	buf := bytes.NewBufferString("")
+	for i, v := range src {
+		if v >= 'A' && v <= 'Z' {
+			thisUpper = true
+		} else {
+			thisUpper = false
+		}
+		if i > 0 && thisUpper && !prevUpper {
+			buf.WriteRune('_')
+		}
+		prevUpper = thisUpper
+		buf.WriteRune(v)
+	}
+	return strings.ToLower(buf.String())
 }
