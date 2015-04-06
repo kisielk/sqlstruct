@@ -239,7 +239,7 @@ func doScan(dest interface{}, rows Rows, alias string) (err error) {
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return
+		return err
 	}
 
 	for _, name := range cols {
@@ -258,7 +258,7 @@ func doScan(dest interface{}, rows Rows, alias string) (err error) {
 	}
 
 	err = rows.Scan(values...)
-	return
+	return err
 }
 
 func ToSnakeCase(src string) string {
