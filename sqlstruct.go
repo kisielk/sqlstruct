@@ -225,7 +225,7 @@ func cols(s interface{}) []string {
 	return names
 }
 
-func doScan(dest interface{}, rows Rows, alias string) (err error) {
+func doScan(dest interface{}, rows Rows, alias string) error {
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
 
@@ -257,8 +257,7 @@ func doScan(dest interface{}, rows Rows, alias string) (err error) {
 		values = append(values, v)
 	}
 
-	err = rows.Scan(values...)
-	return err
+	return rows.Scan(values...)
 }
 
 func ToSnakeCase(src string) string {
