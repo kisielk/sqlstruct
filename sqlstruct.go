@@ -108,8 +108,8 @@ var NameMapper = strings.ToLower
 var finfos map[reflect.Type]fieldInfo
 var finfoLock sync.RWMutex
 
-// tagName is the name of the tag to use on struct fields
-const tagName = "sql"
+// TagName is the name of the tag to use on struct fields
+var TagName = "sql"
 
 // fieldInfo is a mapping of field tag values to their indices
 type fieldInfo map[string][]int
@@ -140,7 +140,7 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 	n := typ.NumField()
 	for i := 0; i < n; i++ {
 		f := typ.Field(i)
-		tag := f.Tag.Get(tagName)
+		tag := f.Tag.Get(TagName)
 
 		// Skip unexported fields or fields marked with "-"
 		if f.PkgPath != "" || tag == "-" {
