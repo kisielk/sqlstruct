@@ -91,18 +91,16 @@ import (
 	"sync"
 )
 
-// NameMapper is used to convert struct fields which do not have sql tags
-// into database column names. The default mapper is a no-op.
+// NameMapper is the function used to convert struct fields which do not have sql tags
+// into database column names.
 //
-// Example override usage:
+// The default mapper converts field names to lower case. If instead you would prefer
+// field names converted to snake case, simply assign sqlstruct.ToSnakeCase to the variable:
 //
-//  FirstName => first_name
 //		sqlstruct.NameMapper = sqlstruct.ToSnakeCase
 //
-//  Any func(string)string can be used
-//
-//
-var NameMapper = strings.ToLower
+// Alternatively for a custom mapping, any func(string) string can be used instead.
+var NameMapper func(string) string = strings.ToLower
 
 // A cache of fieldInfos to save reflecting every time. Inspried by encoding/xml
 var finfos map[reflect.Type]fieldInfo
@@ -260,6 +258,8 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 	return rows.Scan(values...)
 }
 
+// ToSnakeCase converts a string to snake case, words separated with underscores.
+// It's intended to be used with NameMapper to map struct field names to snake case database fields.
 func ToSnakeCase(src string) string {
 	thisUpper := false
 	prevUpper := false
