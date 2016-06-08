@@ -123,6 +123,11 @@ type Rows interface {
 	Columns() ([]string, error)
 }
 
+type nullableField struct {
+	field reflect.Value
+	value interface{}
+}
+
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
 func getFieldInfo(typ reflect.Type) fieldInfo {
@@ -240,6 +245,8 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 		return err
 	}
 
+	var nullableFields []nullableField
+
 	for _, name := range cols {
 		if len(alias) > 0 {
 			name = strings.Replace(name, alias+"_", "", 1)
@@ -250,12 +257,65 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 			// There is no field mapped to this column so we discard it
 			v = &sql.RawBytes{}
 		} else {
-			v = elem.FieldByIndex(idx).Addr().Interface()
+			switch elem.FieldByIndex(idx).Kind() {
+			case reflect.Bool:
+				v = &sql.NullBool{}
+				nullableFields = append(nullableFields, nullableField{field: elem.FieldByIndex(idx), value: v})
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				v = &sql.NullInt64{}
+				nullableFields = append(nullableFields, nullableField{field: elem.FieldByIndex(idx), value: v})
+			case reflect.Float32, reflect.Float64:
+				v = &sql.NullFloat64{}
+				nullableFields = append(nullableFields, nullableField{field: elem.FieldByIndex(idx), value: v})
+			case reflect.String:
+				v = &sql.NullString{}
+				nullableFields = append(nullableFields, nullableField{field: elem.FieldByIndex(idx), value: v})
+			default:
+				v = elem.FieldByIndex(idx).Addr().Interface()
+			}
 		}
 		values = append(values, v)
 	}
 
-	return rows.Scan(values...)
+	if err := rows.Scan(values...); err != nil {
+		return err
+	}
+
+	for _, nullableField := range nullableFields {
+		switch nullableField.value.(type) {
+		case *sql.NullBool:
+			value := *nullableField.value.(*sql.NullBool)
+			if value.Valid {
+				nullableField.field.SetBool(value.Bool)
+			} else {
+				nullableField.field.SetBool(false)
+			}
+		case *sql.NullInt64:
+			value := *nullableField.value.(*sql.NullInt64)
+			if value.Valid {
+				nullableField.field.SetInt(value.Int64)
+			} else {
+				nullableField.field.SetInt(0)
+			}
+		case *sql.NullFloat64:
+			value := *nullableField.value.(*sql.NullFloat64)
+			if value.Valid {
+				nullableField.field.SetFloat(value.Float64)
+			} else {
+				nullableField.field.SetFloat(0)
+			}
+		case *sql.NullString:
+			value := *nullableField.value.(*sql.NullString)
+			if value.Valid {
+				nullableField.field.SetString(value.String)
+			} else {
+				nullableField.field.SetString("")
+			}
+		}
+	}
+
+	return nil
 }
 
 // ToSnakeCase converts a string to snake case, words separated with underscores.
@@ -278,4 +338,33 @@ func ToSnakeCase(src string) string {
 		buf.WriteRune(v)
 	}
 	return strings.ToLower(buf.String())
+}
+
+// NullValue returns value of the nulled field
+func NullValue(value interface{}) interface{} {
+	v := reflect.ValueOf(value)
+
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if v.Int() == 0 {
+			return sql.NullInt64{Int64: 0, Valid: false}
+		} else {
+			return value
+		}
+	case reflect.Float32, reflect.Float64:
+		if v.Float() == 0 {
+			return sql.NullFloat64{Float64: 0, Valid: false}
+		} else {
+			return value
+		}
+	case reflect.String:
+		if strings.TrimSpace(value.(string)) == "" {
+			return sql.NullString{String: "", Valid: false}
+		} else {
+			return value
+		}
+	}
+
+	return value
 }
