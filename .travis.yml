@@ -10,3 +10,5 @@ jobs:
  exclude:
   - go: 1.2
     arch: ppc64le
+  - go: 1.2
+    arch: amd64
