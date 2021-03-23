@@ -25,6 +25,11 @@ type testType2 struct {
 	FieldSec string `sql:"field_sec"`
 }
 
+type testType3 struct {
+	FieldA       string       `sql:"field_a"`
+	EmbeddedType EmbeddedType `sql:",recurse"`
+}
+
 // testRows is a mock version of sql.Rows which can only scan strings
 type testRows struct {
 	columns []string
@@ -60,6 +65,16 @@ func (r *testRows) addValue(c string, v interface{}) {
 func TestColumns(t *testing.T) {
 	var v testType
 	e := "field_a, field_c, field_d, field_e"
+	c := Columns(v)
+
+	if c != e {
+		t.Errorf("expected %q got %q", e, c)
+	}
+}
+
+func TestColumnDeep(t *testing.T) {
+	var v testType3
+	e := "field_a, field_e"
 	c := Columns(v)
 
 	if c != e {
