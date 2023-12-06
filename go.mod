@@ -1,3 +1,3 @@
-module github.com/ByteSizedMarius/sqlstruct
+module github.com/kisielk/sqlstruct
 
-go 1.21.0
+go 1.18.0

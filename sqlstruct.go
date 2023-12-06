@@ -1,5 +1,4 @@
 // Copyright 2012 Kamil Kisiel. All rights reserved.
-// Modified 2023 by Marius Schmalz
 // Use of this source code is governed by the MIT
 // license which can be found in the LICENSE file.
 
