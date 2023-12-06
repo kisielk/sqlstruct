@@ -77,7 +77,6 @@ by the same alias, using the ColumnsAliased and ScanAliased functions:
     // output: "{Id:1 Username:gedi Email:gediminas.morkevicius@gmail.com Name:Gedas HomeAddress:0xc21001f570}"
     fmt.Printf("%+v", *user.HomeAddress)
     // output: "{Id:2 City:Vilnius Street:Plento 34}"
-
 */
 package sqlstruct
 
@@ -103,7 +102,7 @@ import (
 var NameMapper func(string) string = strings.ToLower
 
 // A cache of fieldInfos to save reflecting every time. Inspried by encoding/xml
-var finfos map[reflect.Type]fieldInfo
+var finfos map[string]fieldInfo
 var finfoLock sync.RWMutex
 
 // TagName is the name of the tag to use on struct fields
@@ -113,7 +112,7 @@ var TagName = "sql"
 type fieldInfo map[string][]int
 
 func init() {
-	finfos = make(map[reflect.Type]fieldInfo)
+	finfos = make(map[string]fieldInfo)
 }
 
 // Rows defines the interface of types that are scannable with the Scan function.
@@ -123,11 +122,16 @@ type Rows interface {
 	Columns() ([]string, error)
 }
 
+// Scanner is an interface used by Scan.
+type Scanner interface {
+	Scan(src interface{}) error
+}
+
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
 func getFieldInfo(typ reflect.Type) fieldInfo {
 	finfoLock.RLock()
-	finfo, ok := finfos[typ]
+	finfo, ok := finfos[typ.String()+TagName]
 	finfoLock.RUnlock()
 	if ok {
 		return finfo
@@ -147,10 +151,14 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 
 		// Handle embedded structs
 		if f.Anonymous && f.Type.Kind() == reflect.Struct {
-			for k, v := range getFieldInfo(f.Type) {
-				finfo[k] = append([]int{i}, v...)
+			// Check what is struct not sql Null type like sql.NullString sql.NullBool sql.Null...
+			scannerType := reflect.TypeOf((*Scanner)(nil)).Elem()
+			if !reflect.PtrTo(f.Type).Implements(scannerType) {
+				for k, v := range getFieldInfo(f.Type) {
+					finfo[k] = append([]int{i}, v...)
+				}
+				continue
 			}
-			continue
 		}
 
 		// Use field name for untagged fields
@@ -163,7 +171,7 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 	}
 
 	finfoLock.Lock()
-	finfos[typ] = finfo
+	finfos[typ.String()+TagName] = finfo
 	finfoLock.Unlock()
 
 	return finfo
@@ -210,9 +218,29 @@ func ColumnsAliased(s interface{}, alias string) string {
 	return strings.Join(aliased, ", ")
 }
 
+// Exec call stmt.Exec for all cached fields of struct
+func Exec(dest interface{}, stmt *sql.Stmt) (sql.Result, error) {
+
+	destv := reflect.ValueOf(dest)
+	typ := destv.Type()
+
+	if typ.Kind() != reflect.Ptr || typ.Elem().Kind() != reflect.Struct {
+		panic(fmt.Errorf("dest must be pointer to struct; got %T", destv))
+	}
+	fieldInfo := getFieldInfo(typ.Elem())
+
+	elem := destv.Elem()
+	var values []interface{}
+	for _, idx := range fieldInfo {
+		var v interface{} = elem.FieldByIndex(idx).Interface()
+		values = append(values, v)
+	}
+	return stmt.Exec(values...)
+
+}
 func cols(s interface{}) []string {
 	v := reflect.ValueOf(s)
-	fields := getFieldInfo(v.Type())
+	fields := getFieldInfo(v.Type().Elem())
 
 	names := make([]string, 0, len(fields))
 	for f := range fields {
@@ -244,7 +272,7 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 		if len(alias) > 0 {
 			name = strings.Replace(name, alias+"_", "", 1)
 		}
-		idx, ok := fieldInfo[strings.ToLower(name)]
+		idx, ok := fieldInfo[NameMapper(name)]
 		var v interface{}
 		if !ok {
 			// There is no field mapped to this column so we discard it
