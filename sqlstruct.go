@@ -83,6 +83,7 @@ package sqlstruct
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -108,6 +109,10 @@ var (
 
 	// TagName is the name of the tag to use on struct fields
 	TagName = "sql"
+
+	db *sql.DB
+
+	QueryReplace = "*"
 )
 
 type (
@@ -117,13 +122,13 @@ type (
 	// Rows defines the interface of types that are scannable with the Scan function.
 	// It is implemented by the sql.Rows type from the standard library
 	Rows interface {
-		Scan(...interface{}) error
+		Scan(...any) error
 		Columns() ([]string, error)
 	}
 
 	// Scanner is an interface used by Scan.
 	Scanner interface {
-		Scan(src interface{}) error
+		Scan(src any) error
 	}
 )
 
@@ -131,11 +136,16 @@ func init() {
 	finfos = make(map[string]fieldInfo)
 }
 
+// SetDatabase sets the global database handle to be used by the Query function.
+func SetDatabase(sqldb *sql.DB) {
+	db = sqldb
+}
+
 // Scan scans the next row from rows in to a struct pointed to by dest. The struct type
 // should have exported fields tagged with the "sql" tag. Columns from row which are not
 // mapped to any struct fields are ignored. Struct fields which have no matching column
 // in the result set are left unchanged.
-func Scan[T any](dest T, rows Rows) error {
+func Scan[T any](dest *T, rows Rows) error {
 	return doScan(dest, rows, "")
 }
 
@@ -146,8 +156,8 @@ func Scan[T any](dest T, rows Rows) error {
 // expect to find the result in a column named "user_name".
 //
 // See ColumnAliased for a convenient way to generate these queries.
-func ScanAliased[T any](dest T, rows Rows, alias string) error {
-	return doScan(dest, rows, alias)
+func ScanAliased[T any](dest *T, rows Rows, alias string) error {
+	return doScan[T](dest, rows, alias)
 }
 
 // Columns returns a string containing a sorted, comma-separated list of column names as
@@ -172,6 +182,72 @@ func ColumnsAliased[T any](alias string) string {
 		aliased = append(aliased, alias+"."+n+" AS "+alias+"_"+n)
 	}
 	return strings.Join(aliased, ", ")
+}
+
+// Query executes the given query using the global database handle and returns the resulting objects.
+// SetDatabase must be called before using this function.
+// The query should use the QueryReplace (* by default) string to indicate where the columns should be inserted.
+// The query is replaced with the columns from the struct type T.
+//
+// For example for the following struct:
+//
+//	type User struct {
+//		ID   int
+//		Name string
+//	}
+//
+// and the following query
+//
+//	SELECT * FROM users WHERE id = ?
+//
+// the query sent to the database will be
+//
+//	SELECT id, name FROM users WHERE id = ?
+//
+// and a list of User objects will be returned.
+func Query[T any](query string, args ...any) (slice []T, err error) {
+	if db == nil {
+		panic("sqlstruct: database not set")
+	}
+
+	query = strings.Replace(query, QueryReplace, Columns[T](), 1)
+
+	rows, err := db.Query(
+		query,
+		args...,
+	)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		nErr := rows.Close()
+		if nErr != nil {
+			if err == nil {
+				err = nErr
+			} else {
+				err = errors.Join(err, nErr)
+			}
+		}
+	}()
+
+	slice, err = SliceFromRows[T](rows)
+	return
+}
+
+// SliceFromRows returns a slice of structs from the given rows by calling Scan on each row.
+func SliceFromRows[T any](rows *sql.Rows) (slice []T, err error) {
+	for rows.Next() {
+		var stru T
+		err = Scan[T](&stru, rows)
+		if err != nil {
+			return
+		}
+
+		slice = append(slice, stru)
+	}
+
+	return
 }
 
 // ToSnakeCase converts a string to snake case, words separated with underscores.
@@ -246,7 +322,7 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 	return finfo
 }
 
-func doScan(dest interface{}, rows Rows, alias string) error {
+func doScan[T any](dest *T, rows Rows, alias string) error {
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
 
@@ -270,7 +346,7 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 		idx, ok := fInfo[NameMapper(name)]
 		var v interface{}
 		if !ok {
-			// There is no field mapped to this column so we discard it
+			// There is no field mapped to this column, so we discard it
 			v = &sql.RawBytes{}
 		} else {
 			v = elem.FieldByIndex(idx).Addr().Interface()
