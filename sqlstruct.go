@@ -1,4 +1,5 @@
 // Copyright 2012 Kamil Kisiel. All rights reserved.
+// Modified 2023 by Marius Schmalz
 // Use of this source code is governed by the MIT
 // license which can be found in the LICENSE file.
 
@@ -184,10 +185,9 @@ func ColumnsAliased[T any](alias string) string {
 	return strings.Join(aliased, ", ")
 }
 
-// Query executes the given query using the global database handle and returns the resulting objects.
+// Query executes the given query using the global database handle and returns the resulting objects in a slice.
 // SetDatabase must be called before using this function.
-// The query should use the QueryReplace (* by default) string to indicate where the columns should be inserted.
-// The query is replaced with the columns from the struct type T.
+// The query should use the QueryReplace (* by default) string to indicate where the columns from the struct type T should be inserted.
 //
 // For example for the following struct:
 //
@@ -206,13 +206,46 @@ func ColumnsAliased[T any](alias string) string {
 //
 // and a list of User objects will be returned.
 func Query[T any](query string, args ...any) (slice []T, err error) {
+	rows, err := doQuery[T](query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	slice, err = SliceFromRows[T](rows)
+	return
+}
+
+// QueryRow works similar to Query except it returns only the first row from the result set.
+// SetDatabase must be called before using this function.
+// The query should use the QueryReplace (* by default) string to indicate where the columns from the struct type T should be inserted.
+func QueryRow[T any](query string, args ...any) (stru T, err error) {
+	rows, err := doQuery[T](query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	rows.Next()
+	err = Scan[T](&stru, rows)
+	return
+}
+
+func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
-		panic("sqlstruct: database not set")
+		err = errors.New("sqlstruct: database not set")
+		return
 	}
 
 	query = strings.Replace(query, QueryReplace, Columns[T](), 1)
 
-	rows, err := db.Query(
+	rows, err = db.Query(
 		query,
 		args...,
 	)
@@ -220,18 +253,6 @@ func Query[T any](query string, args ...any) (slice []T, err error) {
 		return
 	}
 
-	defer func() {
-		nErr := rows.Close()
-		if nErr != nil {
-			if err == nil {
-				err = nErr
-			} else {
-				err = errors.Join(err, nErr)
-			}
-		}
-	}()
-
-	slice, err = SliceFromRows[T](rows)
 	return
 }
 
@@ -368,4 +389,15 @@ func cols[T any]() []string {
 
 	sort.Strings(names)
 	return names
+}
+
+func joinOrErr(err, nErr error) error {
+	if nErr != nil {
+		if err == nil {
+			err = nErr
+		} else {
+			err = errors.Join(err, nErr)
+		}
+	}
+	return err
 }
