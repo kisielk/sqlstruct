@@ -84,9 +84,8 @@ func (r *testRows) addValue(c string, v interface{}) {
 }
 
 func TestColumns(t *testing.T) {
-	var v testType
 	e := "field_a, field_c, field_d, field_e"
-	c := Columns(&v)
+	c := Columns[testType]()
 
 	if c != e {
 		t.Errorf("expected %q got %q", e, c)
@@ -94,19 +93,16 @@ func TestColumns(t *testing.T) {
 }
 
 func TestColumnsAliased(t *testing.T) {
-	var t1 testType
-	var t2 testType2
-
 	expected := "t1.field_a AS t1_field_a, t1.field_c AS t1_field_c, "
 	expected += "t1.field_d AS t1_field_d, t1.field_e AS t1_field_e"
-	actual := ColumnsAliased(&t1, "t1")
+	actual := ColumnsAliased[testType]("t1")
 
 	if expected != actual {
 		t.Errorf("Expected %q got %q", expected, actual)
 	}
 
 	expected = "t2.field_a AS t2_field_a, t2.field_sec AS t2_field_sec"
-	actual = ColumnsAliased(&t2, "t2")
+	actual = ColumnsAliased[testType2]("t2")
 
 	if expected != actual {
 		t.Errorf("Expected %q got %q", expected, actual)
