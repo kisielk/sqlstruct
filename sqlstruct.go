@@ -14,48 +14,48 @@ embedded structs and are recursively scanned.
 
 For example:
 
-		type T1 struct {
-			F4 string `sql:"field4"`
-	    }
+	type T1 struct {
+		F5 string `sql:"field5"`
+	}
 
-		type T2 struct {
-			F5 string `sql:"field5"`
-		}
+	type T struct {
+		F1 string
+		F2 string `sql:"field2"`
+		F3 string `sql:"-"`
+		F4 T1	 `sql:",recurse"`
+	}
 
-	    type T struct {
-	        F1      string
-	        F2      string `sql:"field2"`
-	        F3      string `sql:"-"`
-			fieldT1 T1     `sql:",recurse"`
-			T2
-	    }
+	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T{})))
+	...
 
-	    rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T{})))
-	    ...
+	for rows.Next() {
+		var t T
+		err = sqlstruct.Scan(&t, rows)
+		...
+	}
 
-	    for rows.Next() {
-	    	var t T
-	        err = sqlstruct.Scan(&t, rows)
-	        ...
-	    }
-
-	    err = rows.Err() // get any errors encountered during iteration
+	err = rows.Err() // get any errors encountered during iteration
 
 Aliased tables in a SQL statement may be scanned into a specific structure identified
 by the same alias, using the ColumnsAliased and ScanAliased functions:
 
+	type Metadata struct {
+		CreatedAt time.Time `sql:"created_at"`
+	}
+
 	type User struct {
-	    Id int `sql:"id"`
-	    Username string `sql:"username"`
-	    Email string `sql:"address"`
-	    Name string `sql:"name"`
-	    HomeAddress *Address `sql:"-"`
+		Id			int			`sql:"id"`
+		Username	string		`sql:"username"`
+		Email	   	string		`sql:"address"`
+		Name		string		`sql:"name"`
+		HomeAddress *Address	`sql:"-"`
+		Metadata	Metadata 	`sql:",recurse"`
 	}
 
 	type Address struct {
-	    Id int `sql:"id"`
-	    City string `sql:"city"`
-	    Street string `sql:"address"`
+		Id		int		`sql:"id"`
+		City	string	`sql:"city"`
+		Street	string	`sql:"address"`
 	}
 
 	...
@@ -63,28 +63,26 @@ by the same alias, using the ColumnsAliased and ScanAliased functions:
 	var user User
 	var address Address
 	sql := `
-
-SELECT %s, %s FROM users AS u
-INNER JOIN address AS a ON a.id = u.address_id
-WHERE u.username = ?
-`
-
+		SELECT %s, %s FROM users AS u
+		INNER JOIN address AS a ON a.id = u.address_id
+		WHERE u.username = ?
+	`
 	sql = fmt.Sprintf(sql, sqlstruct.ColumnsAliased(*user, "u"), sqlstruct.ColumnsAliased(*address, "a"))
 	rows, err := db.Query(sql, "gedi")
 	if err != nil {
-	    log.Fatal(err)
+		log.Fatal(err)
 	}
 	defer rows.Close()
 	if rows.Next() {
-	    err = sqlstruct.ScanAliased(&user, rows, "u")
-	    if err != nil {
-	        log.Fatal(err)
-	    }
-	    err = sqlstruct.ScanAliased(&address, rows, "a")
-	    if err != nil {
-	        log.Fatal(err)
-	    }
-	    user.HomeAddress = address
+		err = sqlstruct.ScanAliased(&user, rows, "u")
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = sqlstruct.ScanAliased(&address, rows, "a")
+		if err != nil {
+			log.Fatal(err)
+		}
+		user.HomeAddress = address
 	}
 	fmt.Printf("%+v", *user)
 	// output: "{Id:1 Username:gedi Email:gediminas.morkevicius@gmail.com Name:Gedas HomeAddress:0xc21001f570}"
