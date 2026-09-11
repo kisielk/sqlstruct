@@ -83,7 +83,6 @@ package sqlstruct
 
 import (
 	"bytes"
-	"database/sql"
 	"fmt"
 	"reflect"
 	"sort"
@@ -122,6 +121,11 @@ type Rows interface {
 	Scan(...interface{}) error
 	Columns() ([]string, error)
 }
+
+// discardColumn implements sql.Scanner without retaining the column value.
+type discardColumn struct{}
+
+func (*discardColumn) Scan(interface{}) error { return nil }
 
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
@@ -248,7 +252,7 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 		var v interface{}
 		if !ok {
 			// There is no field mapped to this column so we discard it
-			v = &sql.RawBytes{}
+			v = &discardColumn{}
 		} else {
 			v = elem.FieldByIndex(idx).Addr().Interface()
 		}

@@ -4,6 +4,10 @@
 package sqlstruct
 
 import (
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"io"
 	"reflect"
 	"testing"
 )
@@ -140,6 +144,77 @@ func TestScanAliased(t *testing.T) {
 	if expected2 != actual2 {
 		t.Errorf("expected %q got %q", expected2, actual2)
 	}
+}
+
+// Exercise database/sql itself: testRows does not enforce RawBytes lifetimes.
+func TestScanAliasedSQLRows(t *testing.T) {
+	db, err := sql.Open("sqlstruct_scan_aliased", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query("SELECT u_name, a_city")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatalf("expected one row, error: %v", rows.Err())
+	}
+
+	var user struct{ Name string }
+	var address struct{ City string }
+	if err := ScanAliased(&user, rows, "u"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ScanAliased(&address, rows, "a"); err != nil {
+		t.Fatalf("scanning another alias from the same row: %v", err)
+	}
+	if user.Name != "Alice" || address.City != "Paris" {
+		t.Fatalf("unexpected values: %q, %q", user.Name, address.City)
+	}
+	if rows.Next() {
+		t.Fatal("unexpected second row")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func init() {
+	sql.Register("sqlstruct_scan_aliased", scanAliasedTestDriver{})
+}
+
+type scanAliasedTestDriver struct{}
+
+func (scanAliasedTestDriver) Open(string) (driver.Conn, error) {
+	return scanAliasedTestConn{}, nil
+}
+
+type scanAliasedTestConn struct{}
+
+func (scanAliasedTestConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("unexpected call to Prepare")
+}
+func (scanAliasedTestConn) Close() error { return nil }
+func (scanAliasedTestConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("unexpected call to Begin")
+}
+func (scanAliasedTestConn) Query(string, []driver.Value) (driver.Rows, error) {
+	return &scanAliasedTestRows{}, nil
+}
+
+type scanAliasedTestRows struct{ done bool }
+
+func (*scanAliasedTestRows) Columns() []string { return []string{"u_name", "a_city"} }
+func (*scanAliasedTestRows) Close() error      { return nil }
+func (r *scanAliasedTestRows) Next(values []driver.Value) error {
+	if r.done {
+		return io.EOF
+	}
+	values[0], values[1] = []byte("Alice"), []byte("Paris")
+	r.done = true
+	return nil
 }
 
 func TestToSnakeCase(t *testing.T) {
